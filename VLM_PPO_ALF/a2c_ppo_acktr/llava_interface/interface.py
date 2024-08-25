@@ -27,6 +27,7 @@ def llava_generate(value_model, tokenizer, input_ids, image_tensor, args):
         output_hidden_states=True,
         return_dict_in_generate=True,
         pad_token_id=tokenizer.eos_token_id,)
+        # print(f"\033[41mOUT: \033[34m{outputs}\033[0m")
         output_ids = outputs['sequences']
     outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
     padded_output_ids = torch.zeros(output_ids.size(0), 2*args.max_new_tokens).to(dtype=output_ids.dtype, device = output_ids.device)
@@ -66,7 +67,7 @@ def llava_evaluate(value_model, input_ids, output_ids, image_tensor, temperature
     selected_log_probs = output_ids_mask*torch.take_along_dim(log_probs[:, input_token_len:-1], output_ids[:,1:].unsqueeze(2), dim = 2).squeeze(2)
     unfolded = output_ids.unfold(dimension=-1, size=3, step=1)
     # the text string '"action":' corresponts to this sequence of tokens: (torch.tensor([[29908,2467,1115]]))
-    target = torch.tensor([29908,2467,1115]).to(base.device)
+    target = torch.tensor([29908,2467,1115]).to(base.device)   ########## getting action @TODO
     matches = (unfolded == target).all(dim = -1)
     match_index = matches.nonzero(as_tuple=True)[-1]
     if match_index.shape[0] > 1:

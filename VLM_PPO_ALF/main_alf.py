@@ -232,6 +232,7 @@ def main():
             # Observation, reward and next obs
             # 执行动作，获取新观察、奖励、完成标志和信息。如果环境名称包含 alfred，则重新生成提示。
             obs, reward, done, infos = envs.step(action) # for alf this will already process action
+            print(f"\033[32mReward: {reward}\033[0m")
             if "alfred" in args.env_name.lower():
                 admissible_commands = list(infos['admissible_commands'])[0]
                 qs = get_alfworld_prompt(envs, obs = infos['observation_text'], admissible_actions=admissible_commands, action_only = args.action_only_prompt)

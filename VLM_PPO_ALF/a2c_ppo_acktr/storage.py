@@ -135,66 +135,96 @@ class RolloutStorage(object):
 
 
 # 240825tra
+import copy
 class TrajStorage:
     def __init__(self):
-        self.trajectories = {}  # 存储所有轨迹的字典
+        self.tasks = {}  # 存储所有任务的字典，任务名是键，对应轨迹的字典是值
 
-    def start_trajectory(self, trajectory_id):
-        """开始一条新的轨迹"""
-        if trajectory_id in self.trajectories:
-            print(f"轨迹 {trajectory_id} 已经存在。")
+    def start_task(self, task_id):
+        """开始一个新的任务"""
+        if task_id in self.tasks:
+            print(f"任务 {task_id} 已经存在。")
         else:
-            self.trajectories[trajectory_id] = []
+            self.tasks[task_id] = {}
 
-    def add_point(self, trajectory_id, point):
-        """向指定轨迹添加数据点"""
-        if trajectory_id not in self.trajectories:
-            print(f"轨迹 {trajectory_id} 不存在。")
+    def start_trajectory(self, task_id, trajectory_id):
+        """在指定任务下开始一条新的轨迹"""
+        if task_id not in self.tasks:
+            print(f"任务 {task_id} 不存在。")
+        elif trajectory_id in self.tasks[task_id]:
+            print(f"轨迹 {trajectory_id} 已经存在于任务 {task_id} 中。")
         else:
-            self.trajectories[trajectory_id].append(point)
+            self.tasks[task_id][trajectory_id] = []
 
-    def get_trajectory(self, trajectory_id):
-        """获取指定轨迹的全部数据"""
-        return self.trajectories.get(trajectory_id, [])
-
-    def get_all_trajectories(self):
-        """获取所有轨迹"""
-        return self.trajectories
-
-    def delete_trajectory(self, trajectory_id):
-        """删除指定的轨迹"""
-        if trajectory_id in self.trajectories:
-            del self.trajectories[trajectory_id]
+    def add_point(self, task_id, trajectory_id, point):
+        """向指定任务下的轨迹添加数据点"""
+        if task_id not in self.tasks:
+            print(f"任务 {task_id} 不存在。")
+        elif trajectory_id not in self.tasks[task_id]:
+            print(f"轨迹 {trajectory_id} 不存在于任务 {task_id} 中。")
         else:
-            print(f"轨迹 {trajectory_id} 不存在。")
+            self.tasks[task_id][trajectory_id].append(copy.deepcopy(point))
 
-# 使用示例
+    def get_trajectory(self, task_id, trajectory_id):
+        """获取指定任务下的轨迹的全部数据"""
+        if task_id in self.tasks and trajectory_id in self.tasks[task_id]:
+            return self.tasks[task_id][trajectory_id]
+        else:
+            return []
+
+    def get_all_tasks(self):
+        """获取所有任务及其轨迹"""
+        return self.tasks
+
+    def delete_trajectory(self, task_id, trajectory_id):
+        """删除指定任务下的轨迹"""
+        if task_id in self.tasks and trajectory_id in self.tasks[task_id]:
+            del self.tasks[task_id][trajectory_id]
+        else:
+            print(f"任务 {task_id} 或轨迹 {trajectory_id} 不存在。")
+
+    def delete_task(self, task_id):
+        """删除指定的任务及其所有轨迹"""
+        if task_id in self.tasks:
+            del self.tasks[task_id]
+        else:
+            print(f"任务 {task_id} 不存在。")
+    
+    def to(self, device):
+        """将所有轨迹数据转移到指定设备"""
+        for task_id, trajectories in self.tasks.items():
+            for trajectory_id, points in trajectories.items():
+                self.tasks[task_id][trajectory_id] = [point.to(device) for point in points]
+    
+    def save_to_file(self, file_path):
+        """将所有任务及其轨迹保存到本地文件"""
+        with open(file_path, 'wb') as f:
+            pickle.dump(self.tasks, f)
+        print(f"\033[32m数据已保存到 {file_path}\033[0m")
+
+    def load_from_file(self, file_path):
+        """从本地文件加载任务及其轨迹"""
+        with open(file_path, 'rb') as f:
+            self.tasks = pickle.load(f)
+        print(f"\033[32m数据已从 {file_path} 加载")
+
+
+
 if __name__ == "__main__":
     traj_storage = TrajStorage()
 
-    # 开始新的轨迹
-    traj_storage.start_trajectory("traj1")
+    # 开始新任务
+    traj_storage.start_task("task1")
+
+    # 在任务下开始新的轨迹
+    traj_storage.start_trajectory("task1", "traj1")
 
     # 添加数据点
-    traj_storage.add_point("traj1", {"x": 1, "y": 2})
-    traj_storage.add_point("traj1", {"x": 2, "y": 3})
-    traj_storage.add_point("traj1", {"x": 3, "y": 4})
+    traj_storage.add_point("task1", "traj1", {"step": 1, "obs": "you are in a bedroom"})
+    traj_storage.add_point("task1", "traj1", {"step": 2, "obs": "you are in a livingroom"})
 
-    # 获取指定轨迹的全部数据
-    print("轨迹 traj1 的全部数据:")
-    trajectory = traj_storage.get_trajectory("traj1")
+    # 获取指定任务下的轨迹的全部数据
+    print("任务 task1 下的轨迹 traj1 的全部数据:")
+    trajectory = traj_storage.get_trajectory("task1", "traj1")
     for point in trajectory:
         print(point)
-
-    # 获取所有轨迹
-    print("\n所有轨迹的数据:")
-    all_trajectories = traj_storage.get_all_trajectories()
-    for traj_id, points in all_trajectories.items():
-        print(f"轨迹 {traj_id} 的数据点数量: {len(points)}")
-
-    # 删除轨迹
-    traj_storage.delete_trajectory("traj1")
-    print("\n删除轨迹 traj1 后，所有轨迹的数据:")
-    all_trajectories = traj_storage.get_all_trajectories()
-    for traj_id, points in all_trajectories.items():
-        print(f"轨迹 {traj_id} 的数据点数量: {len(points)}")

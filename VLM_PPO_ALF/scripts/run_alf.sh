@@ -1,5 +1,5 @@
 # export ALFWORLD_DATA=~/alfworld-storage
-TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="2,3,4,5,6,7" accelerate launch --config_file config_zero2.yaml --main_process_port 29330 ../main_alf.py \
+TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="0" accelerate launch --config_file config_zero2.yaml --main_process_port 29330 ../main_alf.py \
     --env-name "AlfredThorEnv" \
     --alf_config ../alf-config.yaml \
     --init-lr 1e-5 \

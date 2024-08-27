@@ -13,11 +13,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from torchvision.transforms import ToPILImage  # jkc
+import matplotlib.pyplot as plt  # jkc
+
 from a2c_ppo_acktr import algo, utils, rl_utils
 from a2c_ppo_acktr.rl_utils import get_prompt, text_projection, get_alfworld_prompt
 from a2c_ppo_acktr.arguments import get_args
 from a2c_ppo_acktr.model import VLMPolicy, VLMValue
-from a2c_ppo_acktr.storage import RolloutStorage
+from a2c_ppo_acktr.storage import RolloutStorage, TrajStorage  # jkc
 from a2c_ppo_acktr.llava_interface import llava_evaluate, llava_generate
 from a2c_ppo_acktr.llava_interface import init_pretrained_model, find_all_linear_names, load_lora_model
 
@@ -52,6 +55,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
+import copy
 
 def main():
     args = get_args()
@@ -126,6 +130,36 @@ def main():
     envs = AlfEnv(args.alf_config)
     obs, infos = envs.reset(seed=args.seed)
     admissible_commands = list(infos['admissible_commands'])[0]
+    
+    # print(f"\033[31m{infos}\033[0m")
+    # return 0
+
+    #################### Traj Storage ####################
+    trajcluster = TrajStorage()
+
+    # traj_storage.start_task("task1")
+
+    # traj_storage.start_trajectory("task1", "traj1")
+
+    # traj_storage.add_point("task1", "traj1", {"step": 1, "obs": "you are in a bedroom"})
+    # traj_storage.add_point("task1", "traj1", {"step": 2, "obs": "you are in a livingroom"})
+
+    #################### Traj Storage End ####################
+
+    # 使用 ToPILImage 将张量转换为图像
+    # print(f"\033[33m{obs.size()}、{obs[0].size()}、{obs[0][0].size()}\033[0m")
+    # print(f"\033[33m{obs[0]}\033[0m")
+    # to_pil = ToPILImage()
+    # image = to_pil(copy.deepcopy(obs[0]).permute(2,0,1).to(torch.float32) / 255.0)  
+
+    # # 使用 matplotlib 显示图像
+    # # plt.imshow(image)
+    # # plt.axis('off')  # 不显示坐标轴
+    # # plt.show()
+    # # 将图像保存到文件系统
+    # image.save("./output_image.png")
+    # print(f"\033[32m image saves to ./output_image.png\033[0m")
+    # while 1:pass
 
     # 生成提示词
     qs = get_alfworld_prompt(envs, obs = infos['observation_text'], admissible_actions=admissible_commands, action_only = args.action_only_prompt)
@@ -232,7 +266,7 @@ def main():
             # Observation, reward and next obs
             # 执行动作，获取新观察、奖励、完成标志和信息。如果环境名称包含 alfred，则重新生成提示。
             obs, reward, done, infos = envs.step(action) # for alf this will already process action
-            print(f"\033[32mReward: {reward}\033[0m")
+            # print(f"\033[32mReward: {reward}\033[0m")
             if "alfred" in args.env_name.lower():
                 admissible_commands = list(infos['admissible_commands'])[0]
                 qs = get_alfworld_prompt(envs, obs = infos['observation_text'], admissible_actions=admissible_commands, action_only = args.action_only_prompt)

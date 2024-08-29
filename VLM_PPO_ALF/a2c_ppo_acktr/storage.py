@@ -136,6 +136,7 @@ class RolloutStorage(object):
 
 # 240825tra
 import copy
+import pickle
 class TrajStorage:
     def __init__(self):
         self.tasks = {}  # 存储所有任务的字典，任务名是键，对应轨迹的字典是值

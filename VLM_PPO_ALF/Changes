@@ -1,1 +1,14 @@
-# modified a2c_ppo_acktr/storage.py: added class TrajStorage for in-order storage of sampled trajectories. Search KEY: 240825tra
+# MODIFIED a2c_ppo_acktr/storage.py: added class TrajStorage for in-order storage of sampled trajectories. Search KEY: 240825tra
+
+@20240829
+# MKDIR DPO under DPO4VLM/VLM_PPO_ALF to save DPOTrainer codes
+# COPY stepdpo_trainer into directory DPO
+# MKFILE configs.py
+      add functions: H4ArgumentParser, ModelArguments, DataArguments, RLArguments, DPOConfig
+# MODIFIED main_alf.py: add "import configs" and defination of StepDPOConfig
+# COMMENTOUT main_alf.py args=get_args()
+# 注意，accelerate的config和程序传入的不是一个
+
+
+
+

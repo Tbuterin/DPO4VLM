@@ -1,5 +1,6 @@
 # export ALFWORLD_DATA=~/alfworld-storage
-TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="0" accelerate launch --config_file config_zero2.yaml --main_process_port 29330 ../main_alf.py \
+TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="0,1,2,3" accelerate launch --config_file config_zero2.yaml --main_process_port 29330 \
+    ../main_alf.py /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/jiaokechen/DPO4VLM/VLM_PPO_ALF/scripts/config_dpo.yaml \
     --env-name "AlfredThorEnv" \
     --alf_config ../alf-config.yaml \
     --init-lr 1e-5 \
@@ -16,7 +17,7 @@ TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="0" accelerate launch --config
     --temperature 0.2 \
     --ppo-epoch 4 \
     --mini-batch-size 1 \
-    --model-path /home/hadoop-aipnlp/llava-v1.6-mistral-7b/main \
+    --model-path /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/jiaokechen/llava-v1.6-mistral-7b/main \
     --use-lora \
     --train-vision all \
     # --wandb-project you_wandb_proj \

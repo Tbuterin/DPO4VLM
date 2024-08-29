@@ -1,3 +1,4 @@
+# RL arguments
 compute_environment: LOCAL_MACHINE
 deepspeed_config:
   offload_optimizer_device: cpu
@@ -10,10 +11,11 @@ machine_rank: 0
 main_training_function: main
 mixed_precision: bf16
 num_machines: 1
-num_processes: 1  # jkc
+num_processes: 4  # jkc
 rdzv_backend: static
 same_network: true
 tpu_env: []
 tpu_use_cluster: false
 tpu_use_sudo: false
 use_cpu: false
+

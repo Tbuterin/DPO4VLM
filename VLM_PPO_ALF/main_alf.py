@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt  # jkc
 
 from a2c_ppo_acktr import algo, utils, rl_utils
 from a2c_ppo_acktr.rl_utils import get_prompt, text_projection, get_alfworld_prompt
-from a2c_ppo_acktr.arguments import get_args
+# from a2c_ppo_acktr.arguments import get_args
 from a2c_ppo_acktr.model import VLMPolicy, VLMValue
 from a2c_ppo_acktr.storage import RolloutStorage, TrajStorage  # jkc
 from a2c_ppo_acktr.llava_interface import llava_evaluate, llava_generate
@@ -57,8 +57,55 @@ warnings.filterwarnings("ignore")
 import os
 import copy
 
+# jkc edit for DPO
+from DPO.stepdpo_trainer import StepDPOTrainer
+from transformers import HfArgumentParser
+# from alignment import (
+#     DataArguments,
+#     DPOConfig,
+#     H4ArgumentParser,
+#     ModelArguments,
+#     get_checkpoint,
+#     get_datasets,
+#     get_kbit_device_map,
+#     get_peft_config,
+#     get_quantization_config,
+#     get_tokenizer,
+# )
+from configs import (
+    H4ArgumentParser,
+    ModelArguments,
+    DataArguments,
+    RLArguments,
+    DPOConfig
+)
+from dataclasses import dataclass, field
+
+@dataclass
+class StepDPOConfig(DPOConfig):
+    data_path: str = field(default="xinlai/math-step-dpo-10K")
+    prompt: str = field(default="alpaca")
+
+
+
 def main():
-    args = get_args()
+    """
+    要使用DPO进行训练, 需要增加以下参数/结构:
+    model_args, data_args, training_args
+    get_checkpoint(training_args) & load_ckpt
+    set_seed
+    raw_datasets = load_dataset(training_args.data_path)
+    model_kwargs
+    model & ref_model
+    trainer = StepDPOTrainer
+    """
+    # args = get_args()
+
+    # 使用 H4ArgumentParser 来解析模型、数据和训练参数 KEY: addhfparser
+    # parser = H4ArgumentParser((RLArguments, ModelArguments, DataArguments, TrainingArguments))   # jkc0829
+    parser = H4ArgumentParser((RLArguments, ModelArguments, DataArguments, StepDPOConfig))   # jkc0829
+    return 0
+    args, model_args, data_args, training_args = parser.parse()   # jkc0829
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
@@ -130,21 +177,27 @@ def main():
     envs = AlfEnv(args.alf_config)
     obs, infos = envs.reset(seed=args.seed)
     admissible_commands = list(infos['admissible_commands'])[0]
-    
-    # print(f"\033[31m{infos}\033[0m")
+
+    print(f"\033[31m{infos}\033[0m")
     # return 0
 
     #################### Traj Storage ####################
-    trajcluster = TrajStorage()
+    trajs = TrajStorage()
 
+    basename = os.path.basename(copy.deepcopy(infos['extra.gamefile'][0]))
+    dirname = os.path.basename(os.path.dirname(copy.deepcopy(infos['extra.gamefile'][0])))
+    task_name = f"{dirname}_{basename}"
+    traj_name = copy.deepcopy(time.time())
+    trajs.start_task(task_name)
+    trajs.start_trajectory(task_name, traj_name)
+    
     # traj_storage.start_task("task1")
-
     # traj_storage.start_trajectory("task1", "traj1")
-
     # traj_storage.add_point("task1", "traj1", {"step": 1, "obs": "you are in a bedroom"})
     # traj_storage.add_point("task1", "traj1", {"step": 2, "obs": "you are in a livingroom"})
 
     #################### Traj Storage End ####################
+
 
     # 使用 ToPILImage 将张量转换为图像
     # print(f"\033[33m{obs.size()}、{obs[0].size()}、{obs[0][0].size()}\033[0m")
@@ -219,6 +272,10 @@ def main():
     print(f"\033[34maction_log_prob:\033[0m{action_log_prob}")
     print(f"\033[34maction_tokens_log_prob:\033[0m{action_tokens_log_prob}")
 
+    #################### Traj Storage ####################
+    trajs.add_point(task_name, traj_name, {"prompt": prompt, "obs": infos['observation_text'], "act": action, "preference": copy.deepcopy(infos['goal_condition_success_rate'][0])})
+
+
     # 将初始观察复制到回合存储中，并将其移动到指定设备上。
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
@@ -276,6 +333,13 @@ def main():
                 conv.append_message(conv.roles[1], None)
                 prompt = conv.get_prompt()
 
+            #################### Traj Storage ####################
+            trajs.add_point(task_name, traj_name, {"prompt": prompt, "obs": infos['observation_text'], "act": action, "preference": copy.deepcopy(infos['goal_condition_success_rate'][0])})
+            if (args.num_steps * j + step) % 10 == 0:
+                print(f"\033[44m{trajs}\033[0m")
+                trajs.save_to_file(f"./trajs/{task_name}.pkl")
+
+
             masks = torch.FloatTensor(
                 [[0.0] if done_ else [1.0] for done_ in done])  # 创建掩码张量，用于指示是否结束当前回合。
             
@@ -304,6 +368,8 @@ def main():
                     episode_action_tokens_log_prob.append(action_tokens_log_prob[i].item())
                     running_episode_rewards[i] = 0
                     obs, infos = envs.reset(seed=args.seed)
+                    # print(f"\033[34mreset! {infos}\033[0m")
+                    # return 0
 
                     # 重置环境后，重新生成提示。
                     admissible_commands = list(infos['admissible_commands'])[0]
@@ -313,6 +379,17 @@ def main():
                     conv.append_message(conv.roles[0], qs)
                     conv.append_message(conv.roles[1], None)
                     prompt = conv.get_prompt()
+
+
+                    #################### Traj Storage ####################
+                    basename = os.path.basename(copy.deepcopy(infos['extra.gamefile'][0]))
+                    dirname = os.path.basename(os.path.dirname(copy.deepcopy(infos['extra.gamefile'][0])))
+                    task_name = f"{dirname}_{basename}"
+                    traj_name = copy.deepcopy(time.time())
+                    trajs.start_task(task_name)
+                    trajs.start_trajectory(task_name, traj_name)
+                    print(f"\033[34mstart new trajectory.\033[0m")
+                    #################### Traj Storage End ####################
             
             # 创建 bad_masks 张量，并确定动作 ID（在当前代码中未使用）。
             # bad_masks is a legact implementation in the storage

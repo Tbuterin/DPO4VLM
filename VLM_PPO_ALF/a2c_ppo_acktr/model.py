@@ -8,6 +8,9 @@ from a2c_ppo_acktr.utils import init
 from a2c_ppo_acktr.llava_interface import llava_evaluate, llava_generate
 import torch.nn.init as init
 
+# jkc0830
+from a2c_ppo_acktr.llava_interface import dpo_llava_evaluate, dpo_llava_evaluate
+
 class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
@@ -28,7 +31,7 @@ class VLMValue(nn.Module):
             nn.Linear(512, 1) # Output layer
             ).to(base.device, dtype=torch.float16) # Move to specified device with dtype
 
-    def forward(self,  input_ids, image_tensor):
+    def forward(self, input_ids, image_tensor):
         if image_tensor.size(0) != 1:
             input_ids = input_ids.broadcast_to(image_tensor.size(0), input_ids.size(-1))
 
@@ -39,6 +42,8 @@ class VLMValue(nn.Module):
         outputs = self.base(
             inputs_embeds = inputs_embeds,
             output_hidden_states=True)
+        
+        # 以下才是值函数的预测
         hidden_states = outputs.hidden_states
         values = self.value_head(hidden_states[-1][:, -1])
         return values
@@ -98,3 +103,60 @@ class VLMPolicy(nn.Module):
                                         temperature = self.args.temperature,
                                         thought_prob_coef = self.args.thought_prob_coef)
         return value, action_log_prob
+
+
+
+################################
+# jkc0830: policy model for DPO
+################################
+class DPOPolicy(nn.Module):
+    def __init__(self, tokenizer,
+                 image_processor,
+                 base,  # 直接使用 base 作为 policy model
+                 args,
+                 INPUT_IDS,
+                 projection_f,
+                 base_kwargs=None):
+        """
+        projection_f: the postprocessing function to parse text action
+        """
+        super(VLMPolicy, self).__init__()
+        self.args = args
+        self.tokenizer = tokenizer
+        self.image_processor = image_processor
+        self.base = base  # 初始化时传入 base
+        self.INPUT_IDS = INPUT_IDS
+        self.projection_f = projection_f
+
+    def process_obs(self, obs):
+        # 使用 image_processor 处理观测数据
+        processed_images = obs
+        return self.image_processor.preprocess(processed_images, return_tensors='pt')['pixel_values'].to(dtype=self.base.dtype)
+
+    def act(self, inputs, deterministic=False, INPUT_IDS=None):
+        image_tensor = self.process_obs(inputs)
+        if INPUT_IDS is None:
+            INPUT_IDS = self.INPUT_IDS
+        # 使用 dpo_llava_generate 生成策略，不再使用 value_model
+        output_ids, text_action, action_log_prob, action_tokens_log_prob = dpo_llava_generate(policy_model=self.base,  # 这里传入的是 base
+                                                                                          tokenizer=self.tokenizer,
+                                                                                          input_ids=INPUT_IDS,
+                                                                                          image_tensor=image_tensor,
+                                                                                          args=self.args)
+        action = self.projection_f(text_action)
+        return output_ids, action, action_log_prob, action_tokens_log_prob  # 返回策略相关输出
+
+    def evaluate_actions(self, inputs, output_ids, INPUT_IDS=None):
+        image_tensor = self.process_obs(inputs)
+        if INPUT_IDS is None:
+            INPUT_IDS = self.INPUT_IDS
+        # 使用 dpo_llava_evaluate 进行策略评估，不再使用 value_model
+        action_log_prob, _ = dpo_llava_evaluate(policy_model=self.base,  # 这里传入的是 base
+                                            input_ids=INPUT_IDS,
+                                            output_ids=output_ids,
+                                            image_tensor=image_tensor,
+                                            temperature=self.args.temperature,
+                                            thought_prob_coef=self.args.thought_prob_coef)
+        return action_log_prob  # 返回策略相关的 log 概率
+
+

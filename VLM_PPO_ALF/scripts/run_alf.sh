@@ -11,7 +11,7 @@ TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="0,1,2,3" accelerate launch --
     --num-steps 1024 \
     --grad-accum-steps 256 \
     --max-new-tokens 256 \
-    --thought-prob-coef 0.2 \
+    --thought_prob_coef 0.2 \
     --use-gae True \
     --seed 1 \
     --temperature 0.2 \
@@ -24,3 +24,5 @@ TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="0,1,2,3" accelerate launch --
     # --wandb-run you_wandb_run \
     # --use-wandb \
     # --q4
+
+    # thought_prob_coef details at /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/jiaokechen/DPO4VLM/VLM_PPO_ALF/a2c_ppo_acktr/llava_interface/interface.py

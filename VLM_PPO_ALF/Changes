@@ -12,7 +12,8 @@
 @20240830
 # MODIFIED a2c_ppo_acktr/storage.py: add function "to_dataset_dict" to class TrajStorage. KEY: 240830dic
 # MODIFIED configs.py: 在parse_yaml_and_args中新增命令行参数解析格式
-
+# MODIFIED a2c_ppo_acktr/llava_interface/interface.py: 将llava函数去除掉value部分，用于适配DPO🌟🌟
+# MODIFIED a2c_ppo_acktr/model.py: 添加DPOPolicy类，舍弃critic结构，直接输出策略🌟🌟
 
 
 

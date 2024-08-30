@@ -134,9 +134,12 @@ class RolloutStorage(object):
 
 
 
-# 240825tra
+# 240825tra # 20240830dic
 import copy
 import pickle
+from dataclasses import dataclass, field
+from datasets import Dataset, DatasetDict
+import pandas as pd
 class TrajStorage:
     def __init__(self):
         self.tasks = {}  # 存储所有任务的字典，任务名是键，对应轨迹的字典是值
@@ -209,6 +212,23 @@ class TrajStorage:
             self.tasks = pickle.load(f)
         print(f"\033[32m数据已从 {file_path} 加载")
 
+    def to_dataset_dict(self):
+        """将所有任务及其轨迹转换为DatasetDict格式"""
+        dataset_dict = {}
+        for task_id, trajectories in self.tasks.items():
+            data = []
+            for trajectory_id, points in trajectories.items():
+                for point in points:
+                    data.append({
+                        "task_id": task_id,
+                        "trajectory_id": trajectory_id,
+                        "point": point
+                    })
+            dataset = Dataset.from_pandas(pd.DataFrame(data))
+            # 这里的键名可以根据需要调整，例如使用任务ID
+            dataset_dict[task_id] = dataset
+        return DatasetDict(dataset_dict)
+
 
 
 if __name__ == "__main__":
@@ -229,3 +249,5 @@ if __name__ == "__main__":
     trajectory = traj_storage.get_trajectory("task1", "traj1")
     for point in trajectory:
         print(point)
+    data = traj_storage.to_dataset_dict()
+    print(f"\033[33m{data}\033[0m")

@@ -35,16 +35,34 @@ class H4ArgumentParser(HfArgumentParser):
         arg_list = self.parse_yaml_file(os.path.abspath(yaml_arg))
 
         outputs = []
-        # strip other args list into dict of key-value pairs
-        other_args = {arg.split("=")[0].strip("-"): arg.split("=")[1] for arg in other_args}
+        # # strip other args list into dict of key-value pairs
+        # other_args = {arg.split("=")[0].strip("-"): arg.split("=")[1] for arg in other_args}
+        # used_args = {}
+
+
+        # jkc：更新处理命令行参数的逻辑 comlogic
+        combined_args = {}
+        if other_args:
+            it = iter(other_args)
+            for arg in it:
+                if "=" in arg:
+                    key, value = arg.split("=", 1)
+                else:
+                    key = arg.strip("-")
+                    value = next(it, None)
+                combined_args[key] = value
+
         used_args = {}
+
+
 
         # overwrite the default/loaded value with the value provided to the command line
         # adapted from https://github.com/huggingface/transformers/blob/d0b5002378daabf62769159add3e7d66d3f83c3b/src/transformers/hf_argparser.py#L327
         for data_yaml, data_class in zip(arg_list, self.dataclass_types):
             keys = {f.name for f in dataclasses.fields(data_yaml) if f.init}
             inputs = {k: v for k, v in vars(data_yaml).items() if k in keys}
-            for arg, val in other_args.items():
+            # for arg, val in other_args.items():
+            for arg, val in combined_args.items():
                 # add only if in keys
                 if arg in keys:
                     base_type = data_yaml.__dataclass_fields__[arg].type
@@ -232,7 +250,7 @@ class SFTConfig(transformers.TrainingArguments):
 
 
 @dataclass
-class DPOConfig(transformers.TrainingArguments):
+class DPOConfig():
     """
     Arguments related to the DPO training process itself. For all parameters, see: https://huggingface.co/docs/transformers/v4.26.1/en/main_classes/trainer#transformers.TrainingArguments
     """
@@ -301,8 +319,8 @@ class RLArguments:
     model_path: Optional[str] = field(default=None)
     model_base: Optional[str] = field(default=None)
     pretrain_mm_adapter: Optional[str] = field(default=None)
-    prompt: str = field(default="What is the next action? Please format your response as 'The next action is {response}.")
-    data_path: str = field(default="../gym-cards/bc_data.json")
+    # prompt: str = field(default="What is the next action? Please format your response as 'The next action is {response}.")
+    # data_path: str = field(default="../gym-cards/bc_data.json")
     image_folder: str = field(default="../gym-cards/images")
     question_file: str = field(default="tables/question.jsonl")
     answers_file: str = field(default="answer.jsonl")
@@ -331,4 +349,10 @@ class RLArguments:
 
     def __post_init__(self):
         self.cuda = not self.no_cuda and torch.cuda.is_available()
+
+
+@dataclass
+class StepDPOConfig(DPOConfig):
+    data_path: str = field(default="xinlai/math-step-dpo-10K")
+    prompt: str = field(default="alpaca")
 

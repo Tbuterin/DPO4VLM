@@ -77,14 +77,12 @@ from configs import (
     ModelArguments,
     DataArguments,
     RLArguments,
-    DPOConfig
+    DPOConfig,
+    StepDPOConfig
 )
 from dataclasses import dataclass, field
 
-@dataclass
-class StepDPOConfig(DPOConfig):
-    data_path: str = field(default="xinlai/math-step-dpo-10K")
-    prompt: str = field(default="alpaca")
+
 
 
 
@@ -103,8 +101,11 @@ def main():
 
     # 使用 H4ArgumentParser 来解析模型、数据和训练参数 KEY: addhfparser
     # parser = H4ArgumentParser((RLArguments, ModelArguments, DataArguments, TrainingArguments))   # jkc0829
+    print(f"\033[31m{RLArguments()}\033[0m")
+    print(f"\033[32m{ModelArguments()}\033[0m")
+    print(f"\033[33m{DataArguments()}\033[0m")
+    print(f"\033[34m{DPOConfig()}\033[0m")
     parser = H4ArgumentParser((RLArguments, ModelArguments, DataArguments, StepDPOConfig))   # jkc0829
-    return 0
     args, model_args, data_args, training_args = parser.parse()   # jkc0829
 
     torch.manual_seed(args.seed)
@@ -117,6 +118,29 @@ def main():
 
     torch.set_num_threads(1)  # 限制 PyTorch （在CPU上）只使用一个线程，通常用于避免多线程竞争导致的性能下降。
 
+    ###############
+    # Load datasets (offline mode)
+    ###############
+    # print(f"\033[43mLoad Data \033[0m")
+    # print(f"\033[34m{training_args.data_path}\033[0m")
+    # if ".json" in training_args.data_path:
+    #     raw_datasets = load_dataset(
+    #         "json",
+    #         data_files=training_args.data_path.split("||"),
+    #     )
+    # else:
+    #     raw_datasets = load_dataset(training_args.data_path)
+
+    # print(f"\033[34mraw_datasets: {raw_datasets}\033[34m")
+    # logger.info(
+    #     f"Training on the following splits: {[split + ' : ' + str(dset.num_rows) for split, dset in raw_datasets.items()]}"
+    # )
+    # column_names = list(raw_datasets["train"].features)
+
+
+    ###############
+    # load model and tokenizer
+    ###############
     accelerator = accelerate.Accelerator(gradient_accumulation_steps=args.grad_accum_steps)  # 处理分布式训练和梯度累积
     device = accelerator.device
     print(f"\033[33mUsing {device}.\033[0m")

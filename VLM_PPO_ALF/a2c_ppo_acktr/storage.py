@@ -141,6 +141,10 @@ from dataclasses import dataclass, field
 from datasets import Dataset, DatasetDict
 import pandas as pd
 class TrajStorage:
+    """
+    需要存储的内容:
+    轨迹数据: (obs_txt, prompt, thts & action, state rewards, state probs)
+    """
     def __init__(self):
         self.tasks = {}  # 存储所有任务的字典，任务名是键，对应轨迹的字典是值
 

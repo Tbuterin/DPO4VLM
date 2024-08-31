@@ -71,31 +71,7 @@ from configs import (
 from dataclasses import dataclass, field
 
 
-
-
-
-def main():
-    """
-    要使用DPO进行训练, 需要增加以下参数/结构:
-    model_args, data_args, training_args
-    get_checkpoint(training_args) & load_ckpt
-    set_seed
-    raw_datasets = load_dataset(training_args.data_path)
-    model_kwargs
-    model & ref_model
-    trainer = StepDPOTrainer
-    """
-    # args = get_args()
-
-    # 使用 H4ArgumentParser 来解析模型、数据和训练参数 KEY: addhfparser
-    # parser = H4ArgumentParser((RLArguments, ModelArguments, DataArguments, TrainingArguments))   # jkc0829
-    print(f"\033[31m{RLArguments()}\033[0m")
-    print(f"\033[32m{ModelArguments()}\033[0m")
-    print(f"\033[33m{DataArguments()}\033[0m")
-    print(f"\033[34m{DPOConfig()}\033[0m")
-    parser = H4ArgumentParser((RLArguments, ModelArguments, DataArguments, StepDPOConfig))   # jkc0829
-    args, model_args, data_args, training_args = parser.parse()   # jkc0829
-
+def torch_init(args):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
@@ -106,33 +82,8 @@ def main():
 
     torch.set_num_threads(1)  # 限制 PyTorch （在CPU上）只使用一个线程，通常用于避免多线程竞争导致的性能下降。
 
-    ###############
-    # Load datasets (offline mode)
-    ###############
-    # print(f"\033[43mLoad Data \033[0m")
-    # print(f"\033[34m{training_args.data_path}\033[0m")
-    # if ".json" in training_args.data_path:
-    #     raw_datasets = load_dataset(
-    #         "json",
-    #         data_files=training_args.data_path.split("||"),
-    #     )
-    # else:
-    #     raw_datasets = load_dataset(training_args.data_path)
 
-    # print(f"\033[34mraw_datasets: {raw_datasets}\033[34m")
-    # logger.info(
-    #     f"Training on the following splits: {[split + ' : ' + str(dset.num_rows) for split, dset in raw_datasets.items()]}"
-    # )
-    # column_names = list(raw_datasets["train"].features)
-
-
-    ###############
-    # load model and tokenizer
-    ###############
-    accelerator = accelerate.Accelerator(gradient_accumulation_steps=args.grad_accum_steps)  # 处理分布式训练和梯度累积
-    device = accelerator.device
-    print(f"\033[33mUsing {device}.\033[0m")
-    model_device = device
+def load_base_model(args):
     model_path = args.model_path
     cache_dir = args.cache_dir
 
@@ -158,9 +109,43 @@ def main():
             base = LlavaLlamaForCausalLM.from_pretrained(model_path, load_in_4bit=True, quantization_config=q4_config, cache_dir=cache_dir)
         else:
             base = LlavaLlamaForCausalLM.from_pretrained(model_path, cache_dir=cache_dir)
+    return base, tokenizer
 
-    # base: 创建的Llava模型
+
+
+
+def main():
+    """
+    注释了 get_args()
+    添加了 args, model_args, data_args, training_args分别为RLArguments, ModelArguments, DataArguments, StepDPOConfig
+    替换了 actor_critic结构为policy_model, 并添加ref_model = policy_model
+    替换了 agent设置为alg0.DPO
+    注释了 双端队列的初始化
+    注释了 wandb中所有value相关的参数
+    """
+
+    ############################################################
+    # 使用 H4ArgumentParser 来解析模型、数据和训练参数 KEY: addhfparser
+    ############################################################
+    parser = H4ArgumentParser((RLArguments, ModelArguments, DataArguments, StepDPOConfig))   # jkc0829
+    args, model_args, data_args, training_args = parser.parse()   # jkc0829
+
+    ###############
+    # torch settings
+    ###############
+    torch_init(args)
+
+    #########################
+    # load model and tokenizer
+    #########################
+    base, tokenizer = load_base_model(args)  # base: 创建的Llava模型
+    accelerator = accelerate.Accelerator(gradient_accumulation_steps=args.grad_accum_steps)  # 处理分布式训练和梯度累积
+    device = accelerator.device
+    print(f"\033[33mUsing {device}.\033[0m")
+    model_device = device
+    
     print(f"\033[32mModel created.\033[0m")
+
     base.config.max_length = 1024
     print(f"\033[33mModel max context length:\033[0m{base.config.max_length}")
     base, tokenizer = init_pretrained_model(base, tokenizer, pretrain_mm_adapter = args.pretrain_mm_adapter)
@@ -180,7 +165,9 @@ def main():
 
 
     ## Inputing Prompt here
+    ###############
     ## 实例化环境
+    ###############
     assert args.alf_config is not None, "Alfworld environment requires a config file"
     print(f"\033[33mCreating Env: {args.alf_config}\033[0m")
     print(f"\033[33mPath: {os.getenv('ALFWORLD_DATA')}\033[0m")
@@ -188,8 +175,6 @@ def main():
     obs, infos = envs.reset(seed=args.seed)
     admissible_commands = list(infos['admissible_commands'])[0]
 
-    print(f"\033[31m{infos}\033[0m")
-    # return 0
 
     #################### Traj Storage ####################TODO
     ######################################## fzr TODO ########################################
@@ -233,15 +218,16 @@ def main():
                              INPUT_IDS=INPUT_IDS,
                              args=args)
     ref_model = policy_model ##TODO
+
     optimizer = optim.Adam(policy_model.base.parameters(), lr=args.init_lr, eps=args.eps, weight_decay=args.weight_decay)  # 余弦退火学习率调度器，随着训练过程逐渐减少学习率。
-
     lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.lr_max_steps, eta_min=args.end_lr)
-
     AcceleratorState().deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 1  # 设置 DeepSpeed 的训练微批大小为 1。
 
-    policy_model, ref_model, optimizer, lr_scheduler = accelerator.prepare(policy_model, ref_model, optimizer, lr_scheduler) ##TODO🌟
+    policy_model, ref_model, optimizer, lr_scheduler = accelerator.prepare(policy_model, ref_model, optimizer, lr_scheduler) ##TODO
 
+    #################################################################
     # 创建 DPO（Direct Preference Optimization）代理，用于强化学习的策略优化。
+    #################################################################
     agent = algo.DPO(
             policy_model,
             ref_model,
@@ -265,7 +251,7 @@ def main():
     image_tensor = obs
 
     ## 执行模型的 act 函数，基于输入图像张量和输入 ID 生成动作和相关的概率信息，并获取可行命令。
-    _, output_ids, action, action_log_prob, action_tokens_log_prob = actor_critic.act(image_tensor, INPUT_IDS = INPUT_IDS)
+    output_ids, action, action_log_prob, action_tokens_log_prob = policy_model.act(image_tensor, INPUT_IDS = INPUT_IDS)
     admissible_commands = list(infos['admissible_commands'])[0]
 
     print(f"\033[34moutput_ids:\033[0m{output_ids}")
@@ -297,8 +283,9 @@ def main():
 
 
 
-
-    ########## 开始训练 ##########
+    ##########################################################################################
+    ######################################## 开始训练 ########################################
+    ##########################################################################################
     # 记录开始时间，计算训练中的更新次数。如果使用 wandb（Weights and Biases）进行实验追踪，初始化 wandb，并创建一个用于记录文本数据的表格。
     start = time.time()
     num_updates = int(
@@ -318,8 +305,8 @@ def main():
             # Sample actions
             with torch.no_grad():
                 INPUT_IDS = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0)
-                value, output_id, action, action_log_prob, action_tokens_log_prob = policy_model.act(
-                        rollouts.obs[step], INPUT_IDS = INPUT_IDS)  # TODO
+                output_id, action, action_log_prob, action_tokens_log_prob = policy_model.act(rollouts.obs[step], INPUT_IDS = INPUT_IDS)  # TODO
+
                 admissible_commands = list(infos['admissible_commands'])[0]
             text_action = tokenizer.decode(list(filter(lambda num: num != 0, output_id[0].tolist())))
 
@@ -338,10 +325,10 @@ def main():
 
             #################### Traj Storage ####################
             ######################################## fzr TODO ########################################
-            trajs.add_point(task_name, traj_name, {"prompt": prompt, "obs": infos['observation_text'], "act": action, "preference": copy.deepcopy(infos['goal_condition_success_rate'][0])})
-            if (args.num_steps * j + step) % 10 == 0:
-                print(f"\033[44m{trajs}\033[0m")
-                trajs.save_to_file(f"./trajs/{task_name}.pkl")
+            # trajs.add_point(task_name, traj_name, {"prompt": prompt, "obs": infos['observation_text'], "act": action, "preference": copy.deepcopy(infos['goal_condition_success_rate'][0])})
+            # if (args.num_steps * j + step) % 10 == 0:
+            #     print(f"\033[44m{trajs}\033[0m")
+            #     trajs.save_to_file(f"./trajs/{task_name}.pkl")
 
 
             masks = torch.FloatTensor(
@@ -420,12 +407,8 @@ def main():
         print(f"\033[33mground truth:\033[0m{infos}")
         print(f"\033[33msuccess_rate:\033[0m{np.mean(episode_success_rate)}")
 
-        # 禁用梯度计算，并从 actor-critic 模型中获取下一个价值。
-        # with torch.no_grad():
-        #     next_value = actor_critic.get_value(
-        #         rollouts.obs[-1], INPUT_IDS = INPUT_IDS).detach()
 
-        ##### 使用 PPO 算法更新策略，计算价值和动作损失以及策略的熵。并更新学习率调度器。#####
+        ##### 使用 DPO 算法更新策略，计算价值和动作损失以及策略的熵。并更新学习率调度器。#####
         # rollouts.compute_returns(next_value, args.use_gae, args.gamma,
         #                          args.gae_lambda, args.use_proper_time_limits)
         action_loss = agent.update(rollouts)
@@ -433,7 +416,8 @@ def main():
 
 
         # 更新后的回合存储。打印更新状态，包括奖励、成功率和其他统计信息。如果使用 wandb，则记录当前迭代的相关数据。
-        rollouts.after_update() ######################################## fzr TODO ########################################
+        ######################################## fzr TODO ########################################
+        rollouts.after_update() # TODO
         if len(episode_rewards) > 1:
             total_num_steps = (j + 1) * args.num_processes * args.num_steps
             end = time.time()
@@ -444,7 +428,7 @@ def main():
                         len(episode_rewards), np.mean(episode_rewards),
                         np.median(episode_rewards), np.min(episode_rewards),
                         np.max(episode_rewards), np.mean(episode_success_rate),
-                        dist_entropy, value_loss, action_loss))
+                        dist_entropy, action_loss))
             if args.use_wandb:
                 wandb_images = [wandb.Image(image.cpu().numpy()) for image in obs]
                 text_table.add_data(j, infos['observation_text'][0], text_action)
@@ -468,7 +452,7 @@ def main():
                         "distribution_entropy": dist_entropy,
                         "text": text_table,
                         "image": wandb_images,
-                        "value.loss": value_loss,
+                        # "value.loss": value_loss,
                         "action.loss": action_loss,
                         "action_log_prob": action_log_prob.to('cpu').float().numpy()[0],
                         "reward.max": rollouts.rewards.max().item(),
@@ -480,10 +464,11 @@ def main():
                         "return.min": rollouts.returns.min().item(),
                         "return.mean": rollouts.returns.mean().item(),
                         "return.std": rollouts.returns.std().item(),
-                        "value.max": rollouts.value_preds.max().item(),
-                        "value.min": rollouts.value_preds.min().item(),
-                        "value.mean": rollouts.value_preds.mean().item(),
-                        "value.std": rollouts.value_preds.std().item(),})
+                        # "value.max": rollouts.value_preds.max().item(),
+                        # "value.min": rollouts.value_preds.min().item(),
+                        # "value.mean": rollouts.value_preds.mean().item(),
+                        # "value.std": rollouts.value_preds.std().item(),
+                        })
 
 if __name__ == "__main__":
     main()

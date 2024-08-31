@@ -58,20 +58,8 @@ import os
 import copy
 
 # jkc edit for DPO
-from DPO.stepdpo_trainer import StepDPOTrainer
+from a2c_ppo_acktr.model import DPOPolicy
 from transformers import HfArgumentParser
-# from alignment import (
-#     DataArguments,
-#     DPOConfig,
-#     H4ArgumentParser,
-#     ModelArguments,
-#     get_checkpoint,
-#     get_datasets,
-#     get_kbit_device_map,
-#     get_peft_config,
-#     get_quantization_config,
-#     get_tokenizer,
-# )
 from configs import (
     H4ArgumentParser,
     ModelArguments,
@@ -190,8 +178,6 @@ def main():
     if args.use_lora:
         base = get_peft_model(base, base_lora_config)
 
-    value_model = VLMValue(base)
-    value_model = value_model.to(model_device)
 
     ## Inputing Prompt here
     ## 实例化环境
@@ -205,7 +191,8 @@ def main():
     print(f"\033[31m{infos}\033[0m")
     # return 0
 
-    #################### Traj Storage ####################
+    #################### Traj Storage ####################TODO
+    ######################################## fzr TODO ########################################
     trajs = TrajStorage()
 
     basename = os.path.basename(copy.deepcopy(infos['extra.gamefile'][0]))
@@ -223,22 +210,7 @@ def main():
     #################### Traj Storage End ####################
 
 
-    # 使用 ToPILImage 将张量转换为图像
-    # print(f"\033[33m{obs.size()}、{obs[0].size()}、{obs[0][0].size()}\033[0m")
-    # print(f"\033[33m{obs[0]}\033[0m")
-    # to_pil = ToPILImage()
-    # image = to_pil(copy.deepcopy(obs[0]).permute(2,0,1).to(torch.float32) / 255.0)  
-
-    # # 使用 matplotlib 显示图像
-    # # plt.imshow(image)
-    # # plt.axis('off')  # 不显示坐标轴
-    # # plt.show()
-    # # 将图像保存到文件系统
-    # image.save("./output_image.png")
-    # print(f"\033[32m image saves to ./output_image.png\033[0m")
-    # while 1:pass
-
-    # 生成提示词
+    # 生成提示词 @TODO:需要修改提示词
     qs = get_alfworld_prompt(envs, obs = infos['observation_text'], admissible_actions=admissible_commands, action_only = args.action_only_prompt)
     qs = DEFAULT_IMAGE_TOKEN + "\n" + qs
     conv = conv_templates[args.conv_mode].copy()  # 使用对话模板构建对话并生成最终的提示文本。
@@ -254,35 +226,41 @@ def main():
     if "alfred" in args.env_name.lower():
         projection_f = partial(lambda x: x)
 
-    actor_critic = VLMPolicy(tokenizer=tokenizer,
+    policy_model = DPOPolicy(tokenizer=tokenizer,
                              image_processor=image_processor,
-                             value_model=value_model,
+                             base=base,
                              projection_f=projection_f,
                              INPUT_IDS=INPUT_IDS,
                              args=args)
-    optimizer = optim.Adam(actor_critic.value_model.parameters(), lr=args.init_lr, eps=args.eps, weight_decay=args.weight_decay)  # 余弦退火学习率调度器，随着训练过程逐渐减少学习率。
+    ref_model = policy_model ##TODO
+    optimizer = optim.Adam(policy_model.base.parameters(), lr=args.init_lr, eps=args.eps, weight_decay=args.weight_decay)  # 余弦退火学习率调度器，随着训练过程逐渐减少学习率。
 
     lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.lr_max_steps, eta_min=args.end_lr)
 
     AcceleratorState().deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = 1  # 设置 DeepSpeed 的训练微批大小为 1。
 
-    actor_critic, optimizer, lr_scheduler = accelerator.prepare(actor_critic, optimizer, lr_scheduler)
+    policy_model, ref_model, optimizer, lr_scheduler = accelerator.prepare(policy_model, ref_model, optimizer, lr_scheduler) ##TODO🌟
 
-    # 创建 PPO（Proximal Policy Optimization）代理，用于强化学习的策略优化。
-    agent = algo.PPO(
-            actor_critic,
+    # 创建 DPO（Direct Preference Optimization）代理，用于强化学习的策略优化。
+    agent = algo.DPO(
+            policy_model,
+            ref_model,
             optimizer,
             accelerator,
-            args.clip_param,
+            training_args.beta,
             args.ppo_epoch,
             args.mini_batch_size,
-            args.value_loss_coef,
-            args.entropy_coef,
-            max_grad_norm=args.max_grad_norm)
+            args.max_grad_norm,
+            training_args.label_smoothing,
+            training_args.
+            )
 
+
+    ######################################## fzr TODO ########################################
     ## 创建一个 RolloutStorage 实例，用于存储回合数据，参数包括步数、进程数、观察空间、动作空间和最大新标记数量。
-    rollouts = RolloutStorage(args.num_steps, args.num_processes,
-                              (300, 300, 3), spaces.Discrete(14), args.max_new_tokens)
+    # rollouts = RolloutStorage(args.num_steps, args.num_processes,
+    #                           (300, 300, 3), spaces.Discrete(14), args.max_new_tokens)
+
 
     image_tensor = obs
 
@@ -297,24 +275,25 @@ def main():
     print(f"\033[34maction_tokens_log_prob:\033[0m{action_tokens_log_prob}")
 
     #################### Traj Storage ####################
-    trajs.add_point(task_name, traj_name, {"prompt": prompt, "obs": infos['observation_text'], "act": action, "preference": copy.deepcopy(infos['goal_condition_success_rate'][0])})
+    ######################################## fzr TODO ########################################
+    ##########trajs.add_point(task_name, traj_name, {"prompt": prompt, "obs": infos['observation_text'], "act": action, "preference": copy.deepcopy(infos['goal_condition_success_rate'][0])})
 
 
     # 将初始观察复制到回合存储中，并将其移动到指定设备上。
-    rollouts.obs[0].copy_(obs)
-    rollouts.to(device)
+    # rollouts.obs[0].copy_(obs)
+    # rollouts.to(device)
 
     # 初始化多个双端队列，用于存储每个回合的奖励、成功率、动作标记日志概率等信息，队列长度为每个回合最大评估次数。
-    episode_rewards = deque(maxlen=args.eval_num_per_episode)
-    episode_success_rate = deque(maxlen=args.eval_num_per_episode)
-    episode_gc_success_rate = deque(maxlen=args.eval_num_per_episode)
-    episode_succ_rate_pick_and_place = deque(maxlen=args.eval_num_per_episode)
-    episode_succ_rate_pick_two_obj_and_place = deque(maxlen=args.eval_num_per_episode)
-    episode_succ_rate_look_at_obj_in_light = deque(maxlen=args.eval_num_per_episode)
-    episode_succ_rate_pick_heat_then_place_in_recep = deque(maxlen=args.eval_num_per_episode)
-    episode_succ_rate_pick_cool_then_place_in_recep = deque(maxlen=args.eval_num_per_episode)
-    episode_succ_rate_pick_clean_then_place_in_recep = deque(maxlen=args.eval_num_per_episode)
-    episode_action_tokens_log_prob = deque(maxlen=args.eval_num_per_episode)
+    # episode_rewards = deque(maxlen=args.eval_num_per_episode)
+    # episode_success_rate = deque(maxlen=args.eval_num_per_episode)
+    # episode_gc_success_rate = deque(maxlen=args.eval_num_per_episode)
+    # episode_succ_rate_pick_and_place = deque(maxlen=args.eval_num_per_episode)
+    # episode_succ_rate_pick_two_obj_and_place = deque(maxlen=args.eval_num_per_episode)
+    # episode_succ_rate_look_at_obj_in_light = deque(maxlen=args.eval_num_per_episode)
+    # episode_succ_rate_pick_heat_then_place_in_recep = deque(maxlen=args.eval_num_per_episode)
+    # episode_succ_rate_pick_cool_then_place_in_recep = deque(maxlen=args.eval_num_per_episode)
+    # episode_succ_rate_pick_clean_then_place_in_recep = deque(maxlen=args.eval_num_per_episode)
+    # episode_action_tokens_log_prob = deque(maxlen=args.eval_num_per_episode)
 
 
 
@@ -339,7 +318,7 @@ def main():
             # Sample actions
             with torch.no_grad():
                 INPUT_IDS = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0)
-                value, output_id, action, action_log_prob, action_tokens_log_prob = actor_critic.act(
+                value, output_id, action, action_log_prob, action_tokens_log_prob = policy_model.act(
                         rollouts.obs[step], INPUT_IDS = INPUT_IDS)  # TODO
                 admissible_commands = list(infos['admissible_commands'])[0]
             text_action = tokenizer.decode(list(filter(lambda num: num != 0, output_id[0].tolist())))
@@ -358,6 +337,7 @@ def main():
                 prompt = conv.get_prompt()
 
             #################### Traj Storage ####################
+            ######################################## fzr TODO ########################################
             trajs.add_point(task_name, traj_name, {"prompt": prompt, "obs": infos['observation_text'], "act": action, "preference": copy.deepcopy(infos['goal_condition_success_rate'][0])})
             if (args.num_steps * j + step) % 10 == 0:
                 print(f"\033[44m{trajs}\033[0m")
@@ -404,15 +384,15 @@ def main():
                     conv.append_message(conv.roles[1], None)
                     prompt = conv.get_prompt()
 
-
+                    ######################################## fzr TODO ########################################
                     #################### Traj Storage ####################
-                    basename = os.path.basename(copy.deepcopy(infos['extra.gamefile'][0]))
-                    dirname = os.path.basename(os.path.dirname(copy.deepcopy(infos['extra.gamefile'][0])))
-                    task_name = f"{dirname}_{basename}"
-                    traj_name = copy.deepcopy(time.time())
-                    trajs.start_task(task_name)
-                    trajs.start_trajectory(task_name, traj_name)
-                    print(f"\033[34mstart new trajectory.\033[0m")
+                    # basename = os.path.basename(copy.deepcopy(infos['extra.gamefile'][0]))
+                    # dirname = os.path.basename(os.path.dirname(copy.deepcopy(infos['extra.gamefile'][0])))
+                    # task_name = f"{dirname}_{basename}"
+                    # traj_name = copy.deepcopy(time.time())
+                    # trajs.start_task(task_name)
+                    # trajs.start_trajectory(task_name, traj_name)
+                    # print(f"\033[34mstart new trajectory.\033[0m")
                     #################### Traj Storage End ####################
             
             # 创建 bad_masks 张量，并确定动作 ID（在当前代码中未使用）。
@@ -428,8 +408,9 @@ def main():
                 action_id = 0
             action_id = torch.tensor(action_id)
 
-            rollouts.insert(obs, output_id, action_id,
-                                action_log_prob, value, reward, masks, bad_masks)  # 将当前观察、输出 ID、动作 ID、日志概率、价值、奖励、掩码和 bad_masks 插入到回合存储中。
+            ######################################## fzr TODO ########################################
+            # rollouts.insert(obs, output_id, action_id,
+            #                     action_log_prob, value, reward, masks, bad_masks)  # 将当前观察、输出 ID、动作 ID、日志概率、价值、奖励、掩码和 bad_masks 插入到回合存储中。
 
         print(f"\033[43mUpdates:{j}\033[0m")
         print(f"\033[33mprompt:\033[0m{prompt}")
@@ -440,19 +421,19 @@ def main():
         print(f"\033[33msuccess_rate:\033[0m{np.mean(episode_success_rate)}")
 
         # 禁用梯度计算，并从 actor-critic 模型中获取下一个价值。
-        with torch.no_grad():
-            next_value = actor_critic.get_value(
-                rollouts.obs[-1], INPUT_IDS = INPUT_IDS).detach()
+        # with torch.no_grad():
+        #     next_value = actor_critic.get_value(
+        #         rollouts.obs[-1], INPUT_IDS = INPUT_IDS).detach()
 
         ##### 使用 PPO 算法更新策略，计算价值和动作损失以及策略的熵。并更新学习率调度器。#####
-        rollouts.compute_returns(next_value, args.use_gae, args.gamma,
-                                 args.gae_lambda, args.use_proper_time_limits)
-        value_loss, action_loss, dist_entropy = agent.update(rollouts)
+        # rollouts.compute_returns(next_value, args.use_gae, args.gamma,
+        #                          args.gae_lambda, args.use_proper_time_limits)
+        action_loss = agent.update(rollouts)
         lr_scheduler.step()
 
 
         # 更新后的回合存储。打印更新状态，包括奖励、成功率和其他统计信息。如果使用 wandb，则记录当前迭代的相关数据。
-        rollouts.after_update()
+        rollouts.after_update() ######################################## fzr TODO ########################################
         if len(episode_rewards) > 1:
             total_num_steps = (j + 1) * args.num_processes * args.num_steps
             end = time.time()

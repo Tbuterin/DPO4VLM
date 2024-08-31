@@ -355,4 +355,5 @@ class RLArguments:
 class StepDPOConfig(DPOConfig):
     data_path: str = field(default="xinlai/math-step-dpo-10K")
     prompt: str = field(default="alpaca")
-
+    label_smoothing: float = field(default=0.)
+    reference_free: bool = field(default=False)

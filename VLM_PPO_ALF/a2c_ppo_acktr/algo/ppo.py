@@ -141,35 +141,54 @@ class DPO():
         self.max_grad_norm = max_grad_norm
 
     def update(self, rollouts):
-        value_loss_epoch = 0  # DPO中不需要区分value和action loss，因此移除action_loss_epoch和dist_entropy_epoch
+        """
+        进行DPO的参数更新。
+        rollouts: 由RolloutStorage管理的收集的样本，包括成对的较好和较差的样本。
+        """
+        action_loss_epoch = 0  # DPO中不需要区分value和action loss，因此移除action_loss_epoch和dist_entropy_epoch
         # action_loss_epoch = 0
         grad_step = 0
         self.policy_model.train()  # 将actor_critic改为policy_model
         for e in range(self.dpo_epoch):
             data_generator = rollouts.feed_forward_generator(self.mini_batch_size)  # @TODO
-            for sample in data_generator:
+            for better_sample, worse_sample in data_generator:
                 with self.accelerator.accumulate(self.policy_model):  # 将actor_critic替换为policy_model
                     grad_step += 1
-                    obs_batch, output_ids_batch, actions_batch, \
-                    old_log_probs_batch, rewards_batch, \
-                    reference_log_probs_batch = sample  # 将PPO特有的value_preds_batch等替换为DPO相关的log_probs和rewards
+                    better_obs_batch, better_output_ids_batch = better_sample
+                    worse_obs_batch, worse_output_ids_batch = worse_sample
 
-                    # Forward pass for policy model
-                    policy_chosen_logps = self.policy_model.evaluate_actions(
-                        obs_batch, output_ids_batch)  # @TODO
+                    # 评估策略模型在较好和较差样本上的对数概率
+                    better_log_probs = self.policy_model.evaluate_actions(better_obs_batch, better_output_ids_batch)
+                    worse_log_probs = self.policy_model.evaluate_actions(worse_obs_batch, worse_output_ids_batch)  # @TODO
+
 
                     # Forward pass for reference model (or use precomputed reference log probs)
                     if self.reference_free:
-                        reference_chosen_logps = torch.zeros_like(policy_chosen_logps)  # reference_free模式下，参考模型的log probs为0
+                        reference_chosen_logps = torch.zeros_like(better_log_probs)  # reference_free模式下，参考模型的log probs为0
+                        reference_reject_logps = torch.zeros_like(worse_log_probs)
                     else:
-                        reference_chosen_logps = self.reference_model.evaluate_actions(
-                            obs_batch, output_ids_batch)
+                        reference_chosen_logps = self.reference_model.evaluate_actions(better_obs_batch, better_output_ids_batch)
+                        reference_reject_logps = self.reference_model.evaluate_actions(worse_obs_batch, worse_output_ids_batch)
 
                     # 计算DPO损失
                     losses, chosen_rewards, rejected_rewards = self.dpo_loss(
-                        policy_chosen_logps, reference_chosen_logps,
-                        rewards_batch, reference_log_probs_batch
+                        better_log_probs,
+                        worse_log_probs,
+                        reference_better_log_probs,
+                        reference_worse_log_probs,
+                        self.beta,
+                        self.label_smoothing,
+                        self.ipo,
+                        self.reference_free
                     )
+
+                    # 检查数据合法性
+                    try:
+                        assert not torch.isnan(loss).any(), "loss contains nan"
+                    except:
+                        print("\033[31mloss contains nan\033[0m")
+                        exit(1)
+
 
                     loss = losses.mean()
 
@@ -183,26 +202,39 @@ class DPO():
                     self.optimizer.step()
                     self.optimizer.zero_grad()
 
-                    value_loss_epoch += loss.item()
+                    action_loss_epoch += loss.item()
 
-        value_loss_epoch /= grad_step
+        action_loss_epoch /= grad_step
 
-        return value_loss_epoch
+        return action_loss_epoch
 
-    def dpo_loss(self, policy_chosen_logps, reference_chosen_logps, rewards_batch, reference_log_probs_batch):
+    def dpo_loss(self, policy_chosen_logps, policy_rejected_logps,
+                        reference_chosen_logps, reference_rejected_logps,
+                        beta, label_smoothing=0.0, ipo=False, reference_free=False):
         """
         计算DPO损失函数
+        policy_chosen_logps: 策略模型对选择样本的对数概率
+        policy_rejected_logps: 策略模型对未选择样本的对数概率
+        reference_chosen_logps: 参考模型对选择样本的对数概率
+        reference_rejected_logps: 参考模型对未选择样本的对数概率
+        beta: DPO损失的温度参数
+        label_smoothing: DPO损失的标签平滑参数
+        ipo: 是否使用IPO损失
+        reference_free: 是否忽略参考模型
         """
-        log_ratios = policy_chosen_logps - reference_chosen_logps  # 计算策略和参考模型的log比率
+        pi_logratios = policy_chosen_logps - policy_rejected_logps
+        ref_logratios = reference_chosen_logps - reference_rejected_logps
+
         if self.reference_free:
-            log_ratios = policy_chosen_logps  # 如果不使用参考模型，则直接使用策略模型的log probs
+            ref_logratios = 0  # 如果不使用参考模型
+
+        logits = pi_logratios - ref_logratios
 
         # 计算DPO损失
-        losses = -F.logsigmoid(self.beta * log_ratios) * (1 - self.label_smoothing) - \
-                 F.logsigmoid(-self.beta * log_ratios) * self.label_smoothing
+        losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing
 
-        chosen_rewards = self.beta * (policy_chosen_logps - reference_chosen_logps).detach()
-        rejected_rewards = self.beta * (reference_log_probs_batch - reference_chosen_logps).detach()
+        chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
+        rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
 
         return losses, chosen_rewards, rejected_rewards
 

@@ -45,6 +45,8 @@ def llava_evaluate(value_model, input_ids, output_ids, image_tensor, temperature
     input_ids = input_ids.to(base.device)
     _, _, _, _, inputs_embeds, _ = base.prepare_inputs_labels_for_multimodal(torch.cat([input_ids, output_ids], dim = 1), None, None, None, None, image_tensor)
 
+
+
     #calling the model
     inputs_embeds = inputs_embeds.to(base.device, dtype = base.dtype)
     #omit the first output token
@@ -94,7 +96,10 @@ def llava_evaluate(value_model, input_ids, output_ids, image_tensor, temperature
 ##########################
 # modify llava to suit DPO
 ##########################
-def dpo_llava_generate(policy_model, tokenizer, input_ids, image_tensor, args):
+def dpo_llava_generate(policy_model, tokenizer, input_ids, image_tensor, args):  # no_grad
+    """
+    这个函数的作用是通过base.generate来获得输出
+    """
     # 修改：将参数`value_model`改为`policy_model`
     base = policy_model.base  # 使用策略模型的base
     image_tensor = image_tensor.to(base.device, dtype = base.dtype)
@@ -118,11 +123,15 @@ def dpo_llava_generate(policy_model, tokenizer, input_ids, image_tensor, args):
     padded_output_ids = torch.zeros(output_ids.size(0), 2*args.max_new_tokens).to(dtype=output_ids.dtype, device = output_ids.device)
     padded_output_ids[:, :output_ids.size(1)] = output_ids
     with torch.no_grad():
-        sum_log_probs, action_tokens_log_prob = llava_evaluate(policy_model, input_ids, padded_output_ids, image_tensor, args.temperature, args.thought_prob_coef, tokenizer)
+        sum_log_probs, action_tokens_log_prob = dpo_llava_evaluate(policy_model, input_ids, padded_output_ids, image_tensor, args.temperature, args.thought_prob_coef, tokenizer)
         # 修改：移除了values的返回
     return padded_output_ids, outputs, sum_log_probs, action_tokens_log_prob  # 修改：移除了values的返回
 
-def dpo_llava_evaluate(policy_model, input_ids, output_ids, image_tensor, temperature, thought_prob_coef, tokenizer=None):
+def dpo_llava_evaluate(policy_model, input_ids, output_ids, image_tensor, temperature, thought_prob_coef, tokenizer=None):  # with_grad
+    """
+    这个函数的作用是传入input和output, 返回其概率
+    """
+
     if output_ids.size(0) != 1:
         input_ids = input_ids.broadcast_to(output_ids.size(0), input_ids.size(-1))
     base = policy_model.base  # 使用策略模型的base
@@ -151,7 +160,7 @@ def dpo_llava_evaluate(policy_model, input_ids, output_ids, image_tensor, temper
     unfolded = output_ids.unfold(dimension=-1, size=3, step=1)
     target = torch.tensor([29908,2467,1115]).to(base.device)  # 获取action的标记
     matches = (unfolded == target).all(dim=-1)
-    match_index = matches.nonzero(as_tuple=True)[-1]
+    match_index = matches.nonzero(as_tuple=True)[-1]  # 获取的最后一个action🌟
     if match_index.shape[0] > 1:
         match_index = match_index[-1].unsqueeze(0)
     else:
@@ -161,8 +170,10 @@ def dpo_llava_evaluate(policy_model, input_ids, output_ids, image_tensor, temper
             sum_log_prob = torch.tensor([-2]).to(base.device)
             action_tokens_log_prob = torch.tensor([-1]).to(base.device)
             return sum_log_prob, action_tokens_log_prob  # 修改：移除了values的返回
-    thought_log_prob = torch.sum(selected_log_probs[:, 1:match_index-1], dim=1)
 
+    # 获取thts和actions的概率🌟
+    thought_log_prob = torch.sum(selected_log_probs[:, 1:match_index-1], dim=1)
     action_tokens_log_prob = torch.sum(selected_log_probs[:, match_index-1:], dim=1)
+
     sum_log_prob = thought_prob_coef * thought_log_prob + action_tokens_log_prob  # 整体的prob
     return sum_log_prob, action_tokens_log_prob  # 修改：移除了values的返回

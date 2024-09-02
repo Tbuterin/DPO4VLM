@@ -1,6 +1,6 @@
 # export ALFWORLD_DATA=~/alfworld-storage
 TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="0,1,2,3" accelerate launch --config_file config_zero2.yaml --main_process_port 29330 \
-    ../main_alf.py /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/jiaokechen/DPO4VLM/VLM_PPO_ALF/scripts/config_dpo.yaml \
+    ../main_alf.py /mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/jiaokechen/BACKUP/DPO4VLM/VLM_PPO_ALF/scripts/config_dpo.yaml \
     --env_name "AlfredThorEnv" \
     --alf_config ../alf-config.yaml \
     --init-lr 1e-5 \

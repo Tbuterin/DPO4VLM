@@ -158,8 +158,8 @@ class DPO():
                     worse_obs_batch, worse_output_ids_batch = worse_sample
 
                     # 评估策略模型在较好和较差样本上的对数概率
-                    better_log_probs = self.policy_model.evaluate_actions(better_obs_batch, better_output_ids_batch)
-                    worse_log_probs = self.policy_model.evaluate_actions(worse_obs_batch, worse_output_ids_batch)  # @TODO
+                    better_log_probs = self.policy_model.evaluate_actions(better_obs_batch, better_output_ids_batch) # obs是图片，ids是文本
+                    worse_log_probs = self.policy_model.evaluate_actions(worse_obs_batch, worse_output_ids_batch)  # @TODO: 这两个是要加input_IDS的
 
 
                     # Forward pass for reference model (or use precomputed reference log probs)

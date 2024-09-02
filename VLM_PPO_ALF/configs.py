@@ -296,7 +296,7 @@ class RLArguments:
     max_grad_norm: float = field(default=0.01, metadata={"help": "max norm of gradients"})
     seed: int = field(default=1, metadata={"help": "random seed"})
     cuda_deterministic: bool = field(default=False, metadata={"help": "sets flags for determinism when using CUDA"})
-    num_processes: int = field(default=1, metadata={"help": "how many training CPU processes to use"})
+    num_processes: int = field(default=3, metadata={"help": "how many training CPU processes to use"})
     num_steps: int = field(default=256, metadata={"help": "number of environment steps collected at each iteration"})
     ppo_epoch: int = field(default=4, metadata={"help": "number of ppo epochs"})
     grad_accum_steps: int = field(default=2, metadata={"help": "the number of gradient accumulation steps"})

@@ -238,7 +238,7 @@ def main():
             args.mini_batch_size,
             args.max_grad_norm,
             training_args.label_smoothing,
-            training_args.
+            training_args.reference_free
             )
 
 

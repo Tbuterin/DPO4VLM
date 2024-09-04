@@ -9,7 +9,7 @@ from a2c_ppo_acktr.llava_interface import llava_evaluate, llava_generate
 import torch.nn.init as init
 
 # jkc0830
-from a2c_ppo_acktr.llava_interface import dpo_llava_evaluate, dpo_llava_evaluate
+from a2c_ppo_acktr.llava_interface import dpo_llava_generate, dpo_llava_evaluate
 
 class Flatten(nn.Module):
     def forward(self, x):
@@ -120,7 +120,7 @@ class DPOPolicy(nn.Module):
         """
         projection_f: the postprocessing function to parse text action
         """
-        super(VLMPolicy, self).__init__()
+        super(DPOPolicy, self).__init__()
         self.args = args
         self.tokenizer = tokenizer
         self.image_processor = image_processor

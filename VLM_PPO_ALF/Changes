@@ -15,5 +15,12 @@
 # MODIFIED a2c_ppo_acktr/llava_interface/interface.py: 将llava函数去除掉value部分，用于适配DPO🌟🌟
 # MODIFIED a2c_ppo_acktr/model.py: 添加DPOPolicy类，舍弃critic结构，直接输出策略🌟🌟
 
+@20240903
+# DELETE a2c_ppo_acktr/storage.py: TrajStorage
+# MODIFIED a2c_ppo_acktr/storage.py: add TrajBuffer
 
+@20240904
+# MODIFIED main_alf.py: add "base = base.to(model_device)"
+# MODIFIED main_alf.py: 修改rollout为trajbuffer, 更新了参数存储逻辑
+# MODIFIED ppo.py & interface.py: 将base=policy_model_base改成base=policy_model, 根据trajsbuffer修改了相关逻辑
 

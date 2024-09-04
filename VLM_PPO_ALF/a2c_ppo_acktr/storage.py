@@ -133,105 +133,9 @@ class RolloutStorage(object):
                 value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ
 
 
+
+
 # 240825tra # 20240830dic
-import copy
-import pickle
-from dataclasses import dataclass, field
-from datasets import Dataset, DatasetDict
-import pandas as pd
-class TrajStorage:
-    def __init__(self):
-        self.tasks = {}  # 存储所有任务的字典，任务名是键，对应轨迹的字典是值
-
-    def start_task(self, task_id):
-        """开始一个新的任务"""
-        if task_id in self.tasks:
-            print(f"任务 {task_id} 已经存在。")
-        else:
-            self.tasks[task_id] = {}
-
-    def start_trajectory(self, task_id, trajectory_id):
-        """在指定任务下开始一条新的轨迹"""
-        if task_id not in self.tasks:
-            print(f"任务 {task_id} 不存在。")
-        elif trajectory_id in self.tasks[task_id]:
-            print(f"轨迹 {trajectory_id} 已经存在于任务 {task_id} 中。")
-        else:
-            self.tasks[task_id][trajectory_id] = []
-
-    def add_point(self, task_id, trajectory_id, point):
-        """向指定任务下的轨迹添加数据点"""
-        if task_id not in self.tasks:
-            print(f"任务 {task_id} 不存在。")
-        elif trajectory_id not in self.tasks[task_id]:
-            print(f"轨迹 {trajectory_id} 不存在于任务 {task_id} 中。")
-        else:
-            self.tasks[task_id][trajectory_id].append(copy.deepcopy(point))
-
-    def get_trajectory(self, task_id, trajectory_id):
-        """获取指定任务下的轨迹的全部数据"""
-        if task_id in self.tasks and trajectory_id in self.tasks[task_id]:
-            return self.tasks[task_id][trajectory_id]
-        else:
-            return []
-
-    def get_all_tasks(self):
-        """获取所有任务及其轨迹"""
-        return self.tasks
-
-    def delete_trajectory(self, task_id, trajectory_id):
-        """删除指定任务下的轨迹"""
-        if task_id in self.tasks and trajectory_id in self.tasks[task_id]:
-            del self.tasks[task_id][trajectory_id]
-        else:
-            print(f"任务 {task_id} 或轨迹 {trajectory_id} 不存在。")
-
-    def delete_task(self, task_id):
-        """删除指定的任务及其所有轨迹"""
-        if task_id in self.tasks:
-            del self.tasks[task_id]
-        else:
-            print(f"任务 {task_id} 不存在。")
-    
-    def to(self, device):
-        """将所有轨迹数据转移到指定设备"""
-        for task_id, trajectories in self.tasks.items():
-            for trajectory_id, points in trajectories.items():
-                self.tasks[task_id][trajectory_id] = [point.to(device) for point in points]
-    
-    def save_to_file(self, file_path):
-        """将所有任务及其轨迹保存到本地文件"""
-        with open(file_path, 'wb') as f:
-            pickle.dump(self.tasks, f)
-        print(f"\033[32m数据已保存到 {file_path}\033[0m")
-
-    def load_from_file(self, file_path):
-        """从本地文件加载任务及其轨迹"""
-        with open(file_path, 'rb') as f:
-            self.tasks = pickle.load(f)
-        print(f"\033[32m数据已从 {file_path} 加载")
-
-    def to_dataset_dict(self):
-        """将所有任务及其轨迹转换为DatasetDict格式"""
-        dataset_dict = {}
-        for task_id, trajectories in self.tasks.items():
-            data = []
-            for trajectory_id, points in trajectories.items():
-                for point in points:
-                    data.append({
-                        "task_id": task_id,
-                        "trajectory_id": trajectory_id,
-                        "point": point
-                    })
-            dataset = Dataset.from_pandas(pd.DataFrame(data))
-            # 这里的键名可以根据需要调整，例如使用任务ID
-            dataset_dict[task_id] = dataset
-        return DatasetDict(dataset_dict)
-
-
-
-
-
 def find_first_diff(list1, list2):
     # @TODO: 考虑最后一个输入的动作
     # @TODO: 考虑相同动作不同状态转移🌟    
@@ -271,7 +175,7 @@ def compare_2_trajs(ta, tb):
         return ["same", step_idx]
 
 
-def get_preference_data(preference, diff_idx, traA, traB):
+def get_preference_data(preference, diff_idx, traA, traB, history_horizon=3):
     """
     这个函数用于将轨迹对转换成prompt + chosen/rejected action的方式返回
     Input:
@@ -287,9 +191,14 @@ def get_preference_data(preference, diff_idx, traA, traB):
     """
     # @TODO: 这里只考虑了text_obs相同，历史动作就一定相同的情况🌟
     # 真正动作不同的应该是第diff_idx - 1个动作
-    text_obs_action_pairs = [arr[1] + "\n" + arr[2] for arr in traA[:diff_idx - 2]]
+    if diff_idx > 1:
+        text_obs_action_pairs = [arr[1] + "\n" + arr[2] for arr in traA[:diff_idx - 2]]
+    else:
+        text_obs_action_pairs = []
+    text_obs_action_pairs = text_obs_action_pairs[-history_horizon:]
     text_obs_action_pairs.append(traA[diff_idx - 1][4]) # 该步的prompt要添加
     pre_prompt_text = '\n'.join(text_obs_action_pairs)
+
     if preference == "better":
         pre_better_text = traA[diff_idx - 1][2]
         pre_worse_text = traB[diff_idx - 1][2]
@@ -297,13 +206,13 @@ def get_preference_data(preference, diff_idx, traA, traB):
         pre_better_text = traB[diff_idx - 1][2]
         pre_worse_text = traA[diff_idx - 1][2]
     obs = traA[diff_idx - 1][0]
-    print(pre_prompt_text, pre_better_text, pre_worse_text)
+    # print(pre_prompt_text, pre_better_text, pre_worse_text)
     return pre_prompt_text, pre_better_text, pre_worse_text, obs
     
 from llava.mm_utils import tokenizer_image_token
 from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN
-class Buffer(object):
-    def __init__(self, max_pairs, num_processes, max_history_tokens, max_new_tokens, obs_shape):
+class TrajBuffer(object):
+    def __init__(self, max_pairs, num_processes, max_history_tokens, max_new_tokens, obs_shape, history_horizon=3):
         """
         better_sample = better_obs_batch, better_output_ids_batch
         """
@@ -319,6 +228,7 @@ class Buffer(object):
         self.pre_worse = torch.zeros(max_pairs, num_processes, 2*max_new_tokens).long()
         self.pre_worse_obs = torch.zeros(max_pairs, num_processes, *obs_shape)  # @TODO: 看看obs是否一致
 
+        self.history_horizon = history_horizon
         self.valid_pairs = 0  # 这个变量用于存储既有数据的数量
         self.saving_index = 0  # 这个变量用于循环更新buffer的存储变量
     
@@ -345,8 +255,15 @@ class Buffer(object):
         Input: -
         Output: Str 由历史text_obs和text_action组成文本段落
         """
-        text_obs_action_pairs = [arr[1] + "\n" + arr[2] for arr in self.buffer[self.current_init_state][self.current_traj_index]]
-        text_history = '\n'.join(text_obs_action_pairs)
+        try:
+            if len(self.buffer[self.current_init_state][self.current_traj_index]) > 0:  # jkc0904
+                text_obs_action_pairs = ["text_observation: " + arr[1] + "\naction: " + arr[2] for arr in self.buffer[self.current_init_state][self.current_traj_index][-self.history_horizon:]]
+            else:
+                return ""
+            text_history = '\n'.join(text_obs_action_pairs)
+        except Exception as e:
+            print(f"\033[31m{e}, please start a trajectory first.\033[0m")
+            exit(1)
         return text_history
 
     def add_new_state(self, obs, text_obs, text_action, success_rate, prompt=None):
@@ -362,12 +279,21 @@ class Buffer(object):
         """
         self.buffer[self.current_init_state][self.current_traj_index].append([obs, text_obs, text_action, success_rate, prompt])
     
+    def add_test_state(self, tokenizer):
+        self.start_traj("test")
+        self.add_new_state(torch.rand(300, 300, 3), "i see the environment", "look", 0.03, "")
+        self.add_new_state(torch.rand(300, 300, 3), "i see table 2", "go to table 2", 0.08, "")
+        self.start_traj("test")
+        self.add_new_state(torch.rand(300, 300, 3), "i see the environment is big", "asd", 0.03, "")
+        self.add_new_state(torch.rand(300, 300, 3), "nothing happens", "go to table 2", 0.0, "")
+        self.get_pairs_data(tokenizer)
+    
     def get_pairs_data(self, tokenizer):
         """
         构造样本对数据
         从self.buffer遍历读取相同init_state的轨迹, 构造样本对;
         存储到self.pre_prompt、self.pre_better、self.pre_better_obs和self.pre_worse、self.pre_worse_obs中。
-        Input: -
+        Input: tokenizer
         Output: _
         """
         # 遍历字典buffer中所有初始状态相同的轨迹对
@@ -376,13 +302,14 @@ class Buffer(object):
                 for j in range(i - 1, -1, -1):
                     preference, diff_idx = compare_2_trajs(trajs[i], trajs[j])
                     if preference == "same": 
-                        # print("same")
+                        print("same")
                         continue
+                    print("valid")
                     # print("valid")
-                    pre_prompt_text, pre_better_text, pre_worse_text, obs = get_preference_data(preference, diff_idx, trajs[i], trajs[j])
+                    pre_prompt_text, pre_better_text, pre_worse_text, obs = get_preference_data(preference, diff_idx, trajs[i], trajs[j], history_horizon=self.history_horizon)
                     pre_prompt = tokenizer_image_token(pre_prompt_text, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0)
                     pre_prompt[pre_prompt == 0] = 259 # 869: . (period), 29871: SPIECE, 259: whitespace
-                    print(pre_prompt.size())
+                    # print(pre_prompt.size())
 
                     pre_better = tokenizer(pre_better_text).input_ids
                     pre_worse = tokenizer(pre_worse_text).input_ids
@@ -392,12 +319,13 @@ class Buffer(object):
                         pre_better += [0] * (2 * self.max_new_tokens - len(pre_better))
                     if len(pre_worse) < 2 * self.max_new_tokens:
                         pre_worse += [0] * (2 * self.max_new_tokens - len(pre_worse))
+
                     if pre_prompt.size()[-1] < 2 * self.max_history_tokens:
                         pre_prompt = torch.cat((pre_prompt, torch.zeros(1, 2 * self.max_history_tokens - pre_prompt.size()[-1])), dim=1)
 
                     pre_better = pre_better[:2 * self.max_new_tokens]
                     pre_worse = pre_worse[:2 * self.max_new_tokens]
-                    pre_prompt = pre_prompt[:2 * self.max_history_tokens]
+                    pre_prompt = pre_prompt[:, -2 * self.max_history_tokens:]  # jkc0904: 获取prompt中靠后的历史🌟  # @TODO: need to check
 
                     self.pre_prompt[self.saving_index % self.max_pairs].copy_(pre_prompt)
 
@@ -409,16 +337,29 @@ class Buffer(object):
                     if self.valid_pairs < self.max_pairs:
                         self.valid_pairs += 1  # 更新存储数据量
                     self.saving_index += 1  # 更新循环存储变量
-        
-        
-                    
+                    print(self.valid_pairs)
 
-    def feed_forward_generator(self):
+        
+    def feed_forward_generator(self, mini_batch_size=None):
         """
         由self.pre_prompt、self.pre_better和self.pre_worse读取并yield数据
         Output: prompt, better_sample和worse_sample的样本生成器--generator()
         """
-        pass
+        num_samples = self.valid_pairs
+
+
+        sampler = BatchSampler(
+            SubsetRandomSampler(range(num_samples)),
+            mini_batch_size,
+            drop_last=True)
+        for indices in sampler:
+            pre_obs_batch = self.pre_better_obs[:-1].view(-1, *self.pre_better_obs.size()[2:])[indices]
+            pre_prompt_batch = self.pre_prompt[:-1].view(-1, self.pre_prompt.size()[-1])[indices]
+            pre_better_batch = self.pre_better[:-1].view(-1, self.pre_better.size()[-1])[indices]
+            pre_worse_batch = self.pre_worse[:-1].view(-1, self.pre_worse.size()[-1])[indices]
+            
+            
+            yield pre_obs_batch, pre_prompt_batch, pre_better_batch, pre_worse_batch
 
 
 
@@ -432,21 +373,24 @@ if __name__ == "__main__":
         return ''.join(random.choice(letters) for i in range(length))
 
 
-    buffer = Buffer(20, 1, 100, 50, (3, 3, 3))
+    buffer = TrajBuffer(20, 1, 100, 50, (300, 300, 3))
+    buffer.start_traj("haha")
+    print(buffer.get_history_data(), "<<!!!!!!!!!!!")
     # max_pairs, num_processes, max_history_tokens, max_new_tokens, obs_shape
-    for i in range(5):
-        init_stat = generate_random_string(6)
-        for x in range(6):
-            buffer.start_traj(init_stat)
-            obs = torch.rand(3, 3, 3)
-            buffer.add_new_state(obs, init_stat, generate_random_string(3), float(random.random()), generate_random_string(random.randint(2,7)))
-            for j in range(7):
-                obs = torch.rand(3, 3, 3)
-                text_obs = generate_random_string(6)
-                text_action = generate_random_string(3)
-                success_rate = float(random.random())
-                prompt = generate_random_string(random.randint(2,7))
-                buffer.add_new_state(obs, text_obs, text_action, success_rate, prompt)
+    # for i in range(5):
+    #     init_stat = generate_random_string(6)
+    #     for x in range(6):
+    #         buffer.start_traj(init_stat)
+    #         obs = torch.rand(5, 5, 3)
+    #         buffer.add_new_state(obs, init_stat, generate_random_string(3), float(random.random()), generate_random_string(random.randint(2,7)))
+    #         for j in range(7):
+    #             obs = torch.rand(5, 5, 3)
+    #             text_obs = generate_random_string(14)
+    #             success_rate = float(random.random())
+    #             text_action = generate_random_string(3)
+    #             prompt = generate_random_string(random.randint(2,7))
+    #             buffer.add_new_state(obs, text_obs, text_action, success_rate, prompt)
+    
 
     # print(buffer.buffer.keys())
     # print(buffer.buffer)
@@ -457,6 +401,15 @@ if __name__ == "__main__":
     # 使用预训练模型名称来加载一个基础的tokenizer
     # 这里我们使用BERT的预训练模型
     tokenizer = AutoTokenizer.from_pretrained("/mnt/dolphinfs/hdd_pool/docker/user/hadoop-aipnlp/jiaokechen/Qwen2-7B-Instruct")
-    buffer.get_pairs_data(tokenizer)
+    # print(tokenizer("sadasd 000 0.213123123").input_ids)
+    # print(tokenizer("100!0 0").input_ids)
+    # print(tokenizer("!").input_ids)
+
+    # buffer.get_pairs_data(tokenizer)
+    buffer.add_test_state(tokenizer)
     # print(f"\033[32m{buffer.pre_prompt}\033[0m")
+
+    rollout = buffer.feed_forward_generator(1)
+    for obs, pt, pre, rej in rollout:
+        print(f"\033[34m{obs.size()}, \033[0m{pt.size()}, \033[32m{pre}, \033[33m{rej.size()}\033[0m\n\n")
 

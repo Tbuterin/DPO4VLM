@@ -101,7 +101,7 @@ def dpo_llava_generate(policy_model, tokenizer, input_ids, image_tensor, args): 
     这个函数的作用是通过base.generate来获得输出
     """
     # 修改：将参数`value_model`改为`policy_model`
-    base = policy_model.base  # 使用策略模型的base
+    base = policy_model  # 使用策略模型
     image_tensor = image_tensor.to(base.device, dtype = base.dtype)
     _, _, _, _, inputs_embeds, _ = base.prepare_inputs_labels_for_multimodal(input_ids.to(base.device), None, None, None, None, image_tensor)
     inputs_embeds = inputs_embeds.to(base.device, dtype = base.dtype)
@@ -134,7 +134,7 @@ def dpo_llava_evaluate(policy_model, input_ids, output_ids, image_tensor, temper
 
     if output_ids.size(0) != 1:
         input_ids = input_ids.broadcast_to(output_ids.size(0), input_ids.size(-1))
-    base = policy_model.base  # 使用策略模型的base
+    base = policy_model  # 使用策略模型
     image_tensor = image_tensor.to(base.device, dtype=base.dtype)
     output_ids = output_ids.to(base.device)
     input_ids = input_ids.to(base.device)

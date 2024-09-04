@@ -296,7 +296,7 @@ class RLArguments:
     max_grad_norm: float = field(default=0.01, metadata={"help": "max norm of gradients"})
     seed: int = field(default=1, metadata={"help": "random seed"})
     cuda_deterministic: bool = field(default=False, metadata={"help": "sets flags for determinism when using CUDA"})
-    num_processes: int = field(default=3, metadata={"help": "how many training CPU processes to use"})
+    num_processes: int = field(default=1, metadata={"help": "how many training CPU processes to use"})
     num_steps: int = field(default=256, metadata={"help": "number of environment steps collected at each iteration"})
     ppo_epoch: int = field(default=4, metadata={"help": "number of ppo epochs"})
     grad_accum_steps: int = field(default=2, metadata={"help": "the number of gradient accumulation steps"})
@@ -357,3 +357,11 @@ class StepDPOConfig(DPOConfig):
     prompt: str = field(default="alpaca")
     label_smoothing: float = field(default=0.)
     reference_free: bool = field(default=False)
+
+    # jkc0904
+    history_embedding: bool = field(default=True)
+    max_pairs: int = field(default=int(32), metadata={"help": "number of DPO data pairs"})
+    max_history_tokens: int = field(default=256)
+
+    start_training_pair_nums: int = field(default=10, metadata={"help": "how many pairs of data should we have before starting update"})
+    history_horizon = 3  # @TODO

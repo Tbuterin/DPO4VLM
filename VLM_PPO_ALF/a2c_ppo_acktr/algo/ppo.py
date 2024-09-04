@@ -126,6 +126,7 @@ class DPO():
                  mini_batch_size,
                  max_grad_norm=None,
                  label_smoothing=0.0,  # 添加: 标签平滑参数，用于DPO损失计算
+                 ipo=False,
                  reference_free=False):  # 添加: 是否使用参考模型的标志
 
         self.policy_model = policy_model  # 将actor_critic改为policy_model
@@ -134,6 +135,7 @@ class DPO():
         self.beta = beta  # 将clip_param替换为beta
         self.dpo_epoch = dpo_epoch  # 将ppo_epoch替换为dpo_epoch
         self.label_smoothing = label_smoothing  # 添加label_smoothing属性
+        self.ipo=False
         self.reference_free = reference_free  # 添加reference_free属性
 
         self.optimizer = optimizer
@@ -151,31 +153,30 @@ class DPO():
         self.policy_model.train()  # 将actor_critic改为policy_model
         for e in range(self.dpo_epoch):
             data_generator = rollouts.feed_forward_generator(self.mini_batch_size)  # @TODO
-            for better_sample, worse_sample in data_generator:
+            for obs, prompt, better_sample, worse_sample in data_generator:
                 with self.accelerator.accumulate(self.policy_model):  # 将actor_critic替换为policy_model
                     grad_step += 1
-                    better_obs_batch, better_output_ids_batch = better_sample
-                    worse_obs_batch, worse_output_ids_batch = worse_sample
+                    better_obs_batch, better_output_ids_batch = obs, better_sample
+                    worse_obs_batch, worse_output_ids_batch = obs, worse_sample
 
                     # 评估策略模型在较好和较差样本上的对数概率
-                    better_log_probs = self.policy_model.evaluate_actions(better_obs_batch, better_output_ids_batch) # obs是图片，ids是文本
-                    worse_log_probs = self.policy_model.evaluate_actions(worse_obs_batch, worse_output_ids_batch)  # @TODO: 这两个是要加input_IDS的
-
-
+                    better_log_probs = self.policy_model.evaluate_actions(better_obs_batch, better_output_ids_batch, INPUT_IDS=prompt) # obs是图片，ids是文本
+                    worse_log_probs = self.policy_model.evaluate_actions(worse_obs_batch, worse_output_ids_batch, INPUT_IDS=prompt)  # @TODO: 这两个是要加input_IDS的
                     # Forward pass for reference model (or use precomputed reference log probs)
-                    if self.reference_free:
-                        reference_chosen_logps = torch.zeros_like(better_log_probs)  # reference_free模式下，参考模型的log probs为0
-                        reference_reject_logps = torch.zeros_like(worse_log_probs)
-                    else:
-                        reference_chosen_logps = self.reference_model.evaluate_actions(better_obs_batch, better_output_ids_batch)
-                        reference_reject_logps = self.reference_model.evaluate_actions(worse_obs_batch, worse_output_ids_batch)
+                    with torch.no_grad():  # jkc0904
+                        if self.reference_free:
+                            reference_chosen_logps = torch.zeros_like(better_log_probs)  # reference_free模式下，参考模型的log probs为0
+                            reference_reject_logps = torch.zeros_like(worse_log_probs)
+                        else:
+                            reference_chosen_logps = self.reference_model.evaluate_actions(better_obs_batch, better_output_ids_batch, INPUT_IDS=prompt)
+                            reference_reject_logps = self.reference_model.evaluate_actions(worse_obs_batch, worse_output_ids_batch, INPUT_IDS=prompt)
 
                     # 计算DPO损失
                     losses, chosen_rewards, rejected_rewards = self.dpo_loss(
                         better_log_probs,
                         worse_log_probs,
-                        reference_better_log_probs,
-                        reference_worse_log_probs,
+                        reference_chosen_logps,
+                        reference_reject_logps,
                         self.beta,
                         self.label_smoothing,
                         self.ipo,
@@ -183,8 +184,9 @@ class DPO():
                     )
 
                     # 检查数据合法性
+                    # print(f"\033[43mlosses is: {losses}, {torch.isnan(losses)}\033[0m")
                     try:
-                        assert not torch.isnan(loss).any(), "loss contains nan"
+                        assert not torch.isnan(losses).any(), "loss contains nan"
                     except:
                         print("\033[31mloss contains nan\033[0m")
                         exit(1)
@@ -229,9 +231,12 @@ class DPO():
             ref_logratios = 0  # 如果不使用参考模型
 
         logits = pi_logratios - ref_logratios
+        # print(f"\033[32m {logits} \033[0m")
+        # print(f"\033[42m{F.logsigmoid(logits)}\033[0m")
 
         # 计算DPO损失
         losses = -F.logsigmoid(beta * logits) * (1 - label_smoothing) - F.logsigmoid(-beta * logits) * label_smoothing
+        # print(f"\033[31mlosses is: {losses}\033[0m")
 
         chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
         rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()

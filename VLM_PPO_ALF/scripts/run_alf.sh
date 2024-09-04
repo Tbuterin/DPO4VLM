@@ -8,7 +8,7 @@ TOKENIZERS_PARALLELISM=false CUDA_VISIBLE_DEVICES="0,1,2,3,4,5" accelerate launc
     --lr_max_steps 25 \
     --eval-num-per-episode 200 \
     --num-env-steps 12000 \
-    --num_steps 128 \
+    --num_steps 1024 \
     --grad-accum-steps 256 \
     --max-new-tokens 256 \
     --thought_prob_coef 0.2 \

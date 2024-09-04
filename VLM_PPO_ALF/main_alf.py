@@ -294,7 +294,7 @@ def main():
     for j in tqdm(range(num_updates)):
 
         for step in tqdm(range(args.num_steps)):
-            print(f"\033[31mstep {step} in {args.num_steps} total\033[0m")
+            # print(f"\033[31mstep {step} in {args.num_steps} total\033[0m")
             # Sample actions
             with torch.no_grad():
                 INPUT_IDS = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(0)
@@ -407,6 +407,7 @@ def main():
         # rollouts.compute_returns(next_value, args.use_gae, args.gamma,
         #                          args.gae_lambda, args.use_proper_time_limits)
         
+        trajs.get_pairs_data(tokenizer)  # jkc0905这个太他妈容易漏了🌟
         if trajs.valid_pairs >= training_args.start_training_pair_nums:
             action_loss = agent.update(trajs)
             lr_scheduler.step()
